@@ -576,8 +576,86 @@ void system_memory() {
     printf("========================================\n");
 }
 
+/* Handle commands sent by the React dashboard or backend */
+int handle_dashboard_command(int argc, char *argv[]) {
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s <stop|resume|terminate|kill|priority> <PID> [priority]\n", argv[0]);
+        return 1;
+    }
+
+    if (!is_number(argv[2])) {
+        fprintf(stderr, "Invalid PID. PID must contain digits only.\n");
+        return 1;
+    }
+
+    long pid_value = strtol(argv[2], NULL, 10);
+    if (pid_value <= 1 || pid_value > 2147483647L) {
+        fprintf(stderr, "Invalid PID. Use a PID greater than 1.\n");
+        return 1;
+    }
+    pid_t pid = (pid_t)pid_value;
+
+    if (strcmp(argv[1], "priority") == 0) {
+        if (argc != 4 || argv[3][0] == '\0') {
+            fprintf(stderr, "Usage: %s priority <PID> <-20 to 19>\n", argv[0]);
+            return 1;
+        }
+
+        char *end = NULL;
+        long priority_value = strtol(argv[3], &end, 10);
+        if (end == argv[3] || *end != '\0' || priority_value < -20 || priority_value > 19) {
+            fprintf(stderr, "Invalid priority. Use a whole number from -20 to 19.\n");
+            return 1;
+        }
+
+        if (setpriority(PRIO_PROCESS, pid, (int)priority_value) == -1) {
+            perror("Priority change failed");
+            return 1;
+        }
+
+        printf("Priority updated for PID %d to %ld\n", pid, priority_value);
+        return 0;
+    }
+
+    int signal_number;
+    const char *description;
+
+    if (strcmp(argv[1], "stop") == 0) {
+        signal_number = SIGSTOP;
+        description = "Process stopped";
+    } else if (strcmp(argv[1], "resume") == 0) {
+        signal_number = SIGCONT;
+        description = "Process resumed";
+    } else if (strcmp(argv[1], "terminate") == 0) {
+        signal_number = SIGTERM;
+        description = "Process termination requested";
+    } else if (strcmp(argv[1], "kill") == 0) {
+        signal_number = SIGKILL;
+        description = "Process force-killed";
+    } else {
+        fprintf(stderr, "Unknown dashboard command: %s\n", argv[1]);
+        return 1;
+    }
+
+    if (kill(pid, signal_number) == -1) {
+        perror("Process action failed");
+        return 1;
+    }
+
+    printf("%s for PID %d\n", description, pid);
+
+    char log_message[200];
+    snprintf(log_message, sizeof(log_message), "PID %d - %s", pid, description);
+    log_event(log_message);
+    return 0;
+}
+
 /* Main menu */
-int main() {
+int main(int argc, char *argv[]) {
+
+    /* Arguments are supplied when the dashboard calls this program. */
+    if (argc > 1)
+        return handle_dashboard_command(argc, argv);
 
     int choice;
 
